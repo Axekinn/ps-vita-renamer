@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
 def setup_logging() -> logging.Logger:
-    """Configure le système de logging."""
+    """Configure the logging system."""
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
@@ -22,13 +22,13 @@ def setup_logging() -> logging.Logger:
 
 def load_csv_data(csv_path: str) -> Dict[str, Dict[str, str]]:
     """
-    Charge les données du fichier CSV et les retourne sous forme de dictionnaire.
+    Load data from CSV file and return it as a dictionary.
     
     Args:
-        csv_path: Chemin vers le fichier CSV
+        csv_path: Path to the CSV file
         
     Returns:
-        Dictionnaire avec Media_ID comme clé et les données du jeu
+        Dictionary with filename as key and game data
     """
     games_data = {}
     
@@ -36,86 +36,87 @@ def load_csv_data(csv_path: str) -> Dict[str, Dict[str, str]]:
         with open(csv_path, 'r', encoding='utf-8') as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
-                # Utiliser Media_ID au lieu de Title_ID
+                # Use filename as key to avoid conflicts
+                filename = row.get('Update_Filename', '').strip()
                 media_id = row.get('Media_ID', '').strip()
-                if media_id:
-                    games_data[media_id] = {
+                if filename and media_id:
+                    games_data[filename] = {
                         'title_name': row.get('Title', '').strip(),
                         'version': row.get('Update_Version', '').strip(),
-                        'filename': row.get('Update_Filename', '').strip()
+                        'media_id': media_id
                     }
         
-        logging.info(f"Chargé {len(games_data)} jeux depuis le CSV")
+        logging.info(f"Loaded {len(games_data)} games from CSV")
         return games_data
         
     except FileNotFoundError:
-        logging.error(f"Fichier CSV non trouvé: {csv_path}")
+        logging.error(f"CSV file not found: {csv_path}")
         return {}
     except Exception as e:
-        logging.error(f"Erreur lors du chargement du CSV: {e}")
+        logging.error(f"Error loading CSV: {e}")
         return {}
 
 def clean_title_name(title: str) -> str:
     """
-    Nettoie le nom du titre pour qu'il soit valide comme nom de fichier.
+    Clean title name to make it valid as a filename.
     
     Args:
-        title: Nom du titre à nettoyer
+        title: Title name to clean
         
     Returns:
-        Nom du titre nettoyé
+        Cleaned title name
     """
-    # Remplacer les caractères invalides pour les noms de fichiers
+    # Replace invalid characters for filenames
     invalid_chars = r'[<>:"/\\|?*]'
     cleaned = re.sub(invalid_chars, '', title)
     
-    # Remplacer les caractères spéciaux par des espaces
+    # Replace special characters with spaces
     cleaned = re.sub(r'[^\w\s\-\.\(\)\[\]]', ' ', cleaned)
     
-    # Supprimer les espaces multiples
+    # Remove multiple spaces
     cleaned = re.sub(r'\s+', ' ', cleaned)
     
     return cleaned.strip()
 
 def extract_title_id_from_filename(filename: str) -> Optional[str]:
     """
-    Extrait le Title_ID depuis le nom de fichier PKG.
+    Extract Title_ID from PKG filename.
     
     Args:
-        filename: Nom du fichier PKG
+        filename: PKG filename
         
     Returns:
-        Title_ID extrait ou None si non trouvé
+        Extracted Title_ID or None if not found
     """
-    # Pattern pour extraire le Title_ID (format PCxx00000)
+    # Pattern to extract Title_ID (format PCxx00000)
     pattern = r'-(PC[SABE]\w{5})[_-]'
     match = re.search(pattern, filename)
     
     if match:
         return match.group(1)
     
-    # Pattern alternatif si le premier ne fonctionne pas
+    # Alternative pattern if the first one doesn't work
     pattern2 = r'UP\d+-([A-Z]{4}\d{5})_'
     match2 = re.search(pattern2, filename)
     
     if match2:
         return match2.group(1)
     
-    # Pattern pour les fichiers HP (région asiatique)
+    # Pattern for HP files (Asian region)
     pattern3 = r'HP\d+-([A-Z]{4}\d{5})_'
     match3 = re.search(pattern3, filename)
     
     if match3:
         return match3.group(1)
     
-    # Pattern pour les fichiers EP (région européenne)
+    # Pattern for EP files (European region)
     pattern4 = r'EP\d+-([A-Z]{4}\d{5})_'
     match4 = re.search(pattern4, filename)
     
     if match4:
         return match4.group(1)
     
-    # Pattern pour les fichiers JP (région japonaise)
+    # Pattern for JP files (Japanese region)
     pattern5 = r'JP\d+-([A-Z]{4}\d{5})_'
     match5 = re.search(pattern5, filename)
     
@@ -126,168 +127,181 @@ def extract_title_id_from_filename(filename: str) -> Optional[str]:
 
 def is_correctly_formatted(filename: str) -> bool:
     """
-    Vérifie si le fichier est déjà correctement formaté.
+    Check if the file is already correctly formatted.
     
     Args:
-        filename: Nom du fichier à vérifier
+        filename: Filename to check
         
     Returns:
-        True si le fichier est déjà correctement formaté
+        True if the file is already correctly formatted
     """
     pattern = r'.+\s\[UPDATE\s[\d\.]+\]\[[A-Z]{4}\d{5}\]\(axekin\.com\)\.pkg$'
     return bool(re.match(pattern, filename))
 
 def generate_new_filename(title_name: str, version: str, title_id: str) -> str:
     """
-    Génère le nouveau nom de fichier selon le format spécifié.
+    Generate new filename according to specified format.
     
     Args:
-        title_name: Nom du jeu
-        version: Version de la mise à jour
-        title_id: ID du titre
+        title_name: Game name
+        version: Update version
+        title_id: Title ID
         
     Returns:
-        Nouveau nom de fichier formaté
+        New formatted filename
     """
     clean_title = clean_title_name(title_name)
     return f"{clean_title} [UPDATE {version}][{title_id}](axekin.com).pkg"
 
 def rename_files(directory_path: str, csv_path: str, dry_run: bool = True) -> Tuple[List[str], List[str]]:
     """
-    Renomme les fichiers dans le répertoire selon les données du CSV.
+    Rename files in directory according to CSV data.
     
     Args:
-        directory_path: Chemin du répertoire contenant les fichiers
-        csv_path: Chemin vers le fichier CSV
-        dry_run: Si True, simule le renommage sans l'effectuer
+        directory_path: Path to directory containing files
+        csv_path: Path to CSV file
+        dry_run: If True, simulate renaming without doing it
         
     Returns:
-        Tuple contenant les listes des fichiers renommés avec succès et des erreurs
+        Tuple containing lists of successfully renamed files and errors
     """
     logger = logging.getLogger(__name__)
     
-    # Charger les données du CSV
+    # Load CSV data
     games_data = load_csv_data(csv_path)
     if not games_data:
-        logger.error("Aucune donnée chargée depuis le CSV")
-        return [], ["Aucune donnée chargée depuis le CSV"]
+        logger.error("No data loaded from CSV")
+        return [], ["No data loaded from CSV"]
     
-    # Vérifier que le répertoire existe
+    # Check if directory exists
     if not os.path.isdir(directory_path):
-        error_msg = f"Répertoire non trouvé: {directory_path}"
+        error_msg = f"Directory not found: {directory_path}"
         logger.error(error_msg)
         return [], [error_msg]
     
     renamed_files = []
     errors = []
     
-    # Parcourir tous les fichiers .pkg dans le répertoire
+    # Browse all .pkg files in directory
     for filename in os.listdir(directory_path):
         if not filename.lower().endswith('.pkg'):
             continue
         
-        # Vérifier si le fichier est déjà correctement formaté
+        # Check if file is already correctly formatted
         if is_correctly_formatted(filename):
-            logger.info(f"Fichier déjà correctement formaté: {filename}")
+            logger.info(f"File already correctly formatted: {filename}")
             continue
         
-        # Extraire le Title_ID du nom de fichier
-        title_id = extract_title_id_from_filename(filename)
-        if not title_id:
-            error_msg = f"Impossible d'extraire le Title_ID de: {filename}"
+        # Search for corresponding data in CSV using filename
+        game_data = None
+        title_id = None
+        
+        # Search for exact match with filename
+        if filename in games_data:
+            game_data = games_data[filename]
+            title_id = game_data['media_id']
+        else:
+            # If no exact match, extract Title_ID and search by pattern
+            title_id = extract_title_id_from_filename(filename)
+            if not title_id:
+                error_msg = f"Cannot extract Title_ID from: {filename}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+                continue
+            
+            # Search for corresponding file in CSV
+            for csv_filename, data in games_data.items():
+                if data['media_id'] == title_id and csv_filename in filename:
+                    game_data = data
+                    break
+        
+        if not game_data:
+            error_msg = f"No data found for file: {filename}"
             logger.warning(error_msg)
             errors.append(error_msg)
             continue
         
-        # Vérifier si le Title_ID existe dans les données CSV
-        if title_id not in games_data:
-            error_msg = f"Title_ID {title_id} non trouvé dans le CSV pour: {filename}"
-            logger.warning(error_msg)
-            errors.append(error_msg)
-            continue
-        
-        # Récupérer les données du jeu
-        game_data = games_data[title_id]
+        # Get game data
         title_name = game_data['title_name']
         version = game_data['version']
         
         if not title_name or not version:
-            error_msg = f"Données manquantes pour {title_id}: titre='{title_name}', version='{version}'"
+            error_msg = f"Missing data for {filename}: title='{title_name}', version='{version}'"
             logger.warning(error_msg)
             errors.append(error_msg)
             continue
         
-        # Générer le nouveau nom de fichier
+        # Generate new filename
         new_filename = generate_new_filename(title_name, version, title_id)
         
-        # Chemins complets
+        # Full paths
         old_path = os.path.join(directory_path, filename)
         new_path = os.path.join(directory_path, new_filename)
         
-        # Vérifier si le fichier de destination existe déjà
+        # Check if destination file already exists
         if os.path.exists(new_path):
-            error_msg = f"Le fichier de destination existe déjà: {new_filename}"
+            error_msg = f"Destination file already exists: {new_filename}"
             logger.warning(error_msg)
             errors.append(error_msg)
             continue
         
         try:
             if dry_run:
-                logger.info(f"[DRY RUN] Renommerait: {filename} -> {new_filename}")
+                logger.info(f"[DRY RUN] Would rename: {filename} -> {new_filename}")
                 renamed_files.append(f"{filename} -> {new_filename}")
             else:
                 os.rename(old_path, new_path)
-                logger.info(f"Renommé: {filename} -> {new_filename}")
+                logger.info(f"Renamed: {filename} -> {new_filename}")
                 renamed_files.append(f"{filename} -> {new_filename}")
                 
         except OSError as e:
-            error_msg = f"Erreur lors du renommage de {filename}: {e}"
+            error_msg = f"Error renaming {filename}: {e}"
             logger.error(error_msg)
             errors.append(error_msg)
     
     return renamed_files, errors
 
 def main():
-    """Fonction principale du script."""
+    """Main function of the script."""
     logger = setup_logging()
     
-    print("=== Renommeur de fichiers PS Vita ===")
+    print("=== PS Vita File Renamer ===")
     print()
     
-    # Demander les chemins à l'utilisateur
-    directory_path = input("Entrez le chemin du répertoire contenant les fichiers .pkg: ").strip()
-    csv_path = input("Entrez le chemin du fichier CSV: ").strip()
+    # Ask user for paths
+    directory_path = input("Enter the path to directory containing .pkg files: ").strip()
+    csv_path = input("Enter the path to CSV file: ").strip()
     
-    # Option de simulation
-    dry_run_choice = input("Voulez-vous faire une simulation (y/n)? [y]: ").strip().lower()
+    # Simulation option
+    dry_run_choice = input("Do you want to run a simulation (y/n)? [y]: ").strip().lower()
     dry_run = dry_run_choice != 'n'
     
     if dry_run:
-        print("\n=== MODE SIMULATION - Aucun fichier ne sera renommé ===")
+        print("\n=== SIMULATION MODE - No files will be renamed ===")
     else:
-        print("\n=== MODE RÉEL - Les fichiers seront renommés ===")
+        print("\n=== REAL MODE - Files will be renamed ===")
     
     print()
     
-    # Effectuer le renommage
+    # Perform renaming
     renamed_files, errors = rename_files(directory_path, csv_path, dry_run)
     
-    # Afficher les résultats
-    print(f"\n=== RÉSULTATS ===")
-    print(f"Fichiers traités avec succès: {len(renamed_files)}")
-    print(f"Erreurs rencontrées: {len(errors)}")
+    # Display results
+    print(f"\n=== RESULTS ===")
+    print(f"Files processed successfully: {len(renamed_files)}")
+    print(f"Errors encountered: {len(errors)}")
     
     if renamed_files:
-        print(f"\nFichiers {'qui seraient ' if dry_run else ''}renommés:")
+        print(f"\nFiles {'that would be ' if dry_run else ''}renamed:")
         for rename_info in renamed_files:
             print(f"  - {rename_info}")
     
     if errors:
-        print(f"\nErreurs:")
+        print(f"\nErrors:")
         for error in errors:
             print(f"  - {error}")
     
-    print(f"\nLes logs détaillés sont disponibles dans: psvita_renamer.log")
+    print(f"\nDetailed logs are available in: psvita_renamer.log")
 
 if __name__ == "__main__":
     main()
